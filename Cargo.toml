@@ -1,0 +1,13 @@
+[package]
+name = "mephisto-mm2-emu"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[profile.release]
+lto = true
+
+[dependencies]
+w65c02s = "0.9.2"
+chess = "3.2.0"
+vampirc-uci = { version = "0.11", features = ["chess"] }
