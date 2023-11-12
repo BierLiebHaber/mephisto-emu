@@ -436,6 +436,11 @@ impl MephistoEmu for MM2Emu {
                         upper_bound: None
                     }])
                 );
+                if self.cur_board.color_on(self.system.led_square).unwrap()
+                    != self.cur_board.side_to_move()
+                {
+                    self.make_half_move(self.system.led_square);
+                }
                 let start = self.system.led_square;
                 self.make_half_move(start);
                 while start == self.system.led_square {
@@ -443,6 +448,7 @@ impl MephistoEmu for MM2Emu {
                 }
                 let m = ChessMove::new(start, self.system.led_square, None);
                 self.make_half_move(self.system.led_square);
+                self.cur_board = self.cur_board.make_move_new(m);
                 return Some(UciMessage::BestMove {
                     best_move: m,
                     ponder: None,
