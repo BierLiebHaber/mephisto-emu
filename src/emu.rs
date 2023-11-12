@@ -363,8 +363,8 @@ impl MephistoEmu for MM2Emu {
     fn play_move(self: &mut MM2Emu, mov: ChessMove) {
         if !self.cur_board.legal(mov) {
             panic!(
-                "info Debug Trying invalid move! cur_board: {}",
-                self.cur_board
+                "info Debug Trying invalid move({})! cur_board: {}",
+                mov, self.cur_board
             )
         }
         // remove piece at dest before making move
@@ -476,6 +476,7 @@ impl MephistoEmu for MM2Emu {
                 });
             } else if disp_str == "PLAY" {
                 self.press_key(MM2Button::ENT);
+                continue;
             } else if disp_str == "NAT " {
                 return None;
             }
