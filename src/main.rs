@@ -28,7 +28,7 @@ pub fn main() {
                 }
                 UciMessage::SetOption { name, value } => match name.as_str() {
                     "Difficulty" => set_diff = u8::from_str(value.unwrap().as_str()).unwrap(),
-                    _ => println!("unknown option: {name}, {}", value.unwrap()),
+                    _ => println!("info Debug unknown option: {name}, {}", value.unwrap()),
                 },
                 UciMessage::Position {
                     startpos,
@@ -39,10 +39,13 @@ pub fn main() {
                     time_control: _time_control,
                     search_control: _search_control,
                 } => {
-                    println!("{}", emu.gen_move());
+                    if let Some(mov) = emu.gen_move() {
+                        println!("{}", mov);
+                    }
                 }
+                UciMessage::UciNewGame => {}
                 UciMessage::Quit => return,
-                _ => println!("unhandled message: {}", message),
+                _ => println!("info Debug unhandled message: {}", message),
             },
             Err(TryRecvError::Empty) => {}
             Err(TryRecvError::Disconnected) => {
