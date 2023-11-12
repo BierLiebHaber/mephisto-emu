@@ -20,7 +20,9 @@ pub fn spawn_stdin_channel() -> Receiver<UciMessage> {
             }
             rdy_once = false;
         }
-        tx.send(message).unwrap();
+        if let Err(_) = tx.send(message) {
+            break;
+        }
     });
     rx
 }
