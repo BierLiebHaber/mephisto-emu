@@ -299,7 +299,10 @@ impl MephistoEmu for MM2Emu {
     }
     fn play_move(self: &mut MM2Emu, mov: ChessMove) {
         if !self.cur_board.legal(mov) {
-            panic!("Trying invalid move! cur_board: {}", self.cur_board)
+            panic!(
+                "info Debug Trying invalid move! cur_board: {}",
+                self.cur_board
+            )
         }
         // remove piece at dest before making move
         if self.cur_board.piece_on(mov.get_dest()).is_some() {
@@ -449,7 +452,7 @@ impl MephistoEmu for MM2Emu {
         let nodes = match ninfo.trim().parse::<u8>() {
             Ok(n) => n,
             Err(e) => {
-                println!("Could not parse: {} Error: {}", info, e);
+                println!("info Debug Could not parse: {} Error: {}", info, e);
                 0
             }
         };
@@ -535,7 +538,7 @@ impl System for MM2 {
             0x4000..=0x7fff => self.book[(addr - 0x4000) as usize],
             0x8000.. => self.rom[(addr - 0x8000) as usize],
             _ => {
-                println!("Read unknown address {:04X}! returning FF", addr);
+                println!("info Debug Read unknown address {:04X}! returning FF", addr);
                 0xff as u8
             }
         }
@@ -565,7 +568,14 @@ impl System for MM2 {
                                 "Display".to_string(),
                                 format!(
                                     "{:?} {:?}",
-                                    self.display.map(|a| LCD_MAP[a as usize]),
+                                    self.display
+                                        .iter()
+                                        .map(|a| format!(
+                                            "{}{}",
+                                            LCD_MAP[*a as usize],
+                                            if *a & 0x80 == 0 { "." } else { "" }
+                                        ))
+                                        .collect::<String>(),
                                     self.display.map(|a| format!("{a:08b}"))
                                 ),
                             )])
@@ -587,7 +597,7 @@ impl System for MM2 {
                 }
             }
             0x3800 => self.mux = (!value).trailing_zeros() as usize,
-            _ => println!("Ignoring write of {value} to {addr}!"),
+            _ => println!("info Debug Ignoring write of {value} to {addr}!"),
         }
     }
 }
