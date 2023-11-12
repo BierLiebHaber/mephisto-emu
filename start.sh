@@ -1,4 +1,4 @@
 #!/bin/bash
 cd "$(dirname "$0")"
 
-exec target/release/mephisto-mm2-emu
+tee in.log | target/release/mephisto-mm2-emu 2>&1 | tee uci.log

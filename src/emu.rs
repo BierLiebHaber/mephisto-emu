@@ -250,6 +250,10 @@ impl MephistoEmu for MM2Emu {
         if startpos && movs.len() == 0 {
             self.set_default_pos();
             return;
+        } else if startpos && movs.len() == 1 {
+            self.set_default_pos();
+            self.play_move(movs[0]);
+            return;
         }
         let nfen: &str;
         let s: UciFen;
