@@ -486,7 +486,9 @@ impl MephistoEmu for MM2Emu {
                     continue;
                 }
             };
-            self.play_move(mov);
+            if self.cur_board.legal(mov) {
+                self.play_move(mov);
+            }
             self.press_key(MM2Button::INFO);
             let p_str = self
                 .system
