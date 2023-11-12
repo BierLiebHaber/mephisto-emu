@@ -551,7 +551,7 @@ impl MephistoEmu for MM2Emu {
             );
             return Some(UciMessage::BestMove {
                 best_move: mov,
-                ponder: p_move,
+                ponder: if p_move == Some(mov) { None } else { p_move },
             });
         }
     }
