@@ -436,10 +436,10 @@ impl MephistoEmu for MM2Emu {
                         upper_bound: None
                     }])
                 );
-                if self.cur_board.color_on(self.system.led_square).unwrap()
-                    != self.cur_board.side_to_move()
-                {
-                    self.make_half_move(self.system.led_square);
+                if let Some(color) = self.cur_board.color_on(self.system.led_square) {
+                    if color != self.cur_board.side_to_move() {
+                        self.make_half_move(self.system.led_square);
+                    }
                 }
                 let start = self.system.led_square;
                 self.make_half_move(start);
