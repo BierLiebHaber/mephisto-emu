@@ -407,141 +407,143 @@ impl MephistoEmu for MM2Emu {
         }
     }
     fn gen_move(self: &mut MM2Emu) -> Option<UciMessage> {
-        self.wait_1sec();
-        if self.last_move_forced || self.cur_board == Board::default() {
-            self.last_move_forced = false;
-            self.press_key(MM2Button::ENT);
-        }
-        self.wait_1sec();
-        let disp_str = self
-            .system
-            .display
-            .as_slice()
-            .iter()
-            .map(|a| LCD_MAP[*a as usize])
-            .collect::<String>();
-        while disp_str.contains('☐') {
+        loop {
             self.wait_1sec();
-        }
-        if disp_str.starts_with(" N ") {
-            let num = disp_str.split_at(2 as usize).1.to_string();
-            let mate_in = Some(num.trim().parse::<i8>().unwrap());
-            println!(
-                "{}",
-                UciMessage::Info(vec![UciInfoAttribute::Score {
-                    cp: None,
-                    mate: mate_in,
-                    lower_bound: None,
-                    upper_bound: None
-                }])
-            );
-            let start = self.system.led_square;
-            self.make_half_move(start);
-            while start == self.system.led_square {
+            if self.last_move_forced || self.cur_board == Board::default() {
+                self.last_move_forced = false;
+                self.press_key(MM2Button::ENT);
+            }
+            self.wait_1sec();
+            let disp_str = self
+                .system
+                .display
+                .as_slice()
+                .iter()
+                .map(|a| LCD_MAP[*a as usize])
+                .collect::<String>();
+            while disp_str.contains('☐') {
                 self.wait_1sec();
             }
-            let m = ChessMove::new(start, self.system.led_square, None);
-            self.make_half_move(self.system.led_square);
-            return Some(UciMessage::BestMove {
-                best_move: m,
-                ponder: None,
-            });
-        } else if disp_str.starts_with("Pr") {
-            let start = self.system.led_square;
-            self.make_half_move(start);
-            let p_char = disp_str.chars().last().unwrap();
-            let prom = match p_char {
-                'D' => Piece::Queen,
-                'T' => Piece::Rook,
-                '5' => Piece::Knight,
-                'L' => Piece::Bishop,
-                _ => panic!("Unknown Promotion"),
+            if disp_str.starts_with(" N ") {
+                let num = disp_str.split_at(2 as usize).1.to_string();
+                let mate_in = Some(num.trim().parse::<i8>().unwrap());
+                println!(
+                    "{}",
+                    UciMessage::Info(vec![UciInfoAttribute::Score {
+                        cp: None,
+                        mate: mate_in,
+                        lower_bound: None,
+                        upper_bound: None
+                    }])
+                );
+                let start = self.system.led_square;
+                self.make_half_move(start);
+                while start == self.system.led_square {
+                    self.wait_1sec();
+                }
+                let m = ChessMove::new(start, self.system.led_square, None);
+                self.make_half_move(self.system.led_square);
+                return Some(UciMessage::BestMove {
+                    best_move: m,
+                    ponder: None,
+                });
+            } else if disp_str.starts_with("Pr") {
+                let start = self.system.led_square;
+                self.make_half_move(start);
+                let p_char = disp_str.chars().last().unwrap();
+                let prom = match p_char {
+                    'D' => Piece::Queen,
+                    'T' => Piece::Rook,
+                    '5' => Piece::Knight,
+                    'L' => Piece::Bishop,
+                    _ => panic!("Unknown Promotion"),
+                };
+                let m = ChessMove::new(start, self.system.led_square, Some(prom));
+                self.make_half_move(self.system.led_square);
+                self.press_key(PIECE_BUTTONS[prom as usize]);
+                return Some(UciMessage::BestMove {
+                    best_move: m,
+                    ponder: None,
+                });
+            } else if disp_str == "PLAY" {
+                self.press_key(MM2Button::ENT)
+            } else if disp_str == "NAT " {
+                return None;
+            }
+            let mov = match ChessMove::from_str(disp_str.to_lowercase().as_str()) {
+                Ok(m) => m,
+                Err(_) => {
+                    continue;
+                }
             };
-            let m = ChessMove::new(start, self.system.led_square, Some(prom));
-            self.make_half_move(self.system.led_square);
-            self.press_key(PIECE_BUTTONS[prom as usize]);
+            self.play_move(mov);
+            self.press_key(MM2Button::INFO);
+            let p_str = self
+                .system
+                .display
+                .iter()
+                .map(|a| LCD_MAP[*a as usize])
+                .collect::<String>()
+                .to_lowercase();
+            let p_move = match ChessMove::from_str(p_str.as_str()) {
+                Ok(m) => Some(m),
+                Err(_) => {
+                    println!("info Debug failed to parse ponder {p_str}!");
+                    None
+                }
+            };
+            self.press_key(MM2Button::A1Pawn);
+            let mut info = self
+                .system
+                .display
+                .map(|a| {
+                    format!(
+                        "{}{}",
+                        LCD_MAP[a as usize],
+                        if a & 0x80 == 0 && a != 0xff { "." } else { "" }
+                    )
+                })
+                .join("");
+            let score = (match info.trim().parse::<f32>() {
+                Ok(f) => f,
+                Err(_) => 0.0,
+            } * 100.0) as i32;
+            //        self.press_keys(MM2Button::CL);
+            //self.press_keys(MM2Button::INFO);
+            self.press_key(MM2Button::C3Bishop);
+            info = self
+                .system
+                .display
+                .iter()
+                .map(|a| format!("{}", LCD_MAP[*a as usize]))
+                .collect::<String>();
+            let vinfo = info.split(' ').collect::<Vec<&str>>();
+            let ninfo = if vinfo.len() > 1 { vinfo[1] } else { "0" };
+            let nodes = match ninfo.trim().parse::<u8>() {
+                Ok(n) => n,
+                Err(e) => {
+                    println!("info Debug Could not parse: {} Error: {}", info, e);
+                    0
+                }
+            };
+            self.press_key(MM2Button::CL);
+            println!(
+                "{}",
+                UciMessage::Info(vec![
+                    UciInfoAttribute::Score {
+                        cp: Some(score),
+                        mate: None,
+                        lower_bound: None,
+                        upper_bound: None
+                    },
+                    UciInfoAttribute::Depth(nodes)
+                ])
+            );
             return Some(UciMessage::BestMove {
-                best_move: m,
-                ponder: None,
+                best_move: mov,
+                ponder: p_move,
             });
-        } else if disp_str == "PLAY" {
-            self.press_key(MM2Button::ENT)
-        } else if disp_str == "NAT " {
-            return None;
         }
-        let mov = match ChessMove::from_str(disp_str.to_lowercase().as_str()) {
-            Ok(m) => m,
-            Err(_) => {
-                return self.gen_move();
-            }
-        };
-        self.play_move(mov);
-        self.press_key(MM2Button::INFO);
-        let p_str = self
-            .system
-            .display
-            .iter()
-            .map(|a| LCD_MAP[*a as usize])
-            .collect::<String>()
-            .to_lowercase();
-        let p_move = match ChessMove::from_str(p_str.as_str()) {
-            Ok(m) => Some(m),
-            Err(_) => {
-                println!("info Debug failed to parse ponder {p_str}!");
-                None
-            }
-        };
-        self.press_key(MM2Button::A1Pawn);
-        let mut info = self
-            .system
-            .display
-            .map(|a| {
-                format!(
-                    "{}{}",
-                    LCD_MAP[a as usize],
-                    if a & 0x80 == 0 && a != 0xff { "." } else { "" }
-                )
-            })
-            .join("");
-        let score = (match info.trim().parse::<f32>() {
-            Ok(f) => f,
-            Err(_) => 0.0,
-        } * 100.0) as i32;
-        //        self.press_keys(MM2Button::CL);
-        //self.press_keys(MM2Button::INFO);
-        self.press_key(MM2Button::C3Bishop);
-        info = self
-            .system
-            .display
-            .iter()
-            .map(|a| format!("{}", LCD_MAP[*a as usize]))
-            .collect::<String>();
-        let vinfo = info.split(' ').collect::<Vec<&str>>();
-        let ninfo = if vinfo.len() > 1 { vinfo[1] } else { "0" };
-        let nodes = match ninfo.trim().parse::<u8>() {
-            Ok(n) => n,
-            Err(e) => {
-                println!("info Debug Could not parse: {} Error: {}", info, e);
-                0
-            }
-        };
-        self.press_key(MM2Button::CL);
-        println!(
-            "{}",
-            UciMessage::Info(vec![
-                UciInfoAttribute::Score {
-                    cp: Some(score),
-                    mate: None,
-                    lower_bound: None,
-                    upper_bound: None
-                },
-                UciInfoAttribute::Depth(nodes)
-            ])
-        );
-        Some(UciMessage::BestMove {
-            best_move: mov,
-            ponder: p_move,
-        })
     }
 }
 
