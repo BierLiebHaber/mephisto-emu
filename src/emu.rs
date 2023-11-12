@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::utils::read_file_into_slice;
-use chess::{Board, ChessMove, Piece, Square};
+use chess::{Board, ChessMove, Color, Piece, Square};
 use vampirc_uci::{UciFen, UciInfoAttribute, UciMessage};
 use w65c02s::{System, W65C02S};
 const fn calc_lcd_map() -> [char; 0x100] {
@@ -120,11 +120,13 @@ enum MM2Button {
     D4Rook,
 }
 
-const PROM_BUTTONS: [MM2Button; 4] = [
+const PIECE_BUTTONS: [MM2Button; 6] = [
+    MM2Button::A1Pawn,
     MM2Button::B2Knight,
     MM2Button::C3Bishop,
     MM2Button::D4Rook,
     MM2Button::E5Queen,
+    MM2Button::F6King,
 ];
 
 pub trait MephistoEmu {
@@ -133,7 +135,7 @@ pub trait MephistoEmu {
     fn set_fen(self: &mut Self, fen: &str);
     fn force_moves(self: &mut Self, movs: Vec<ChessMove>);
     fn play_move(self: &mut Self, mov: ChessMove);
-    fn gen_move(self: &mut Self) -> UciMessage;
+    fn gen_move(self: &mut Self) -> Option<UciMessage>;
 }
 
 pub struct MM2Emu {
@@ -194,7 +196,7 @@ impl MM2Emu {
         self.wait_1sec();
         self.wait_1sec();
     }
-    fn press_keys(self: &mut MM2Emu, button: MM2Button) {
+    fn press_key(self: &mut MM2Emu, button: MM2Button) {
         self.wait_1sec();
         let key_pressed = button as usize;
         self.system.pressed_keys[(key_pressed > 7) as usize][key_pressed % 8] = true;
@@ -239,9 +241,9 @@ impl MephistoEmu for MM2Emu {
             MM2Button::LeftBlack9,
             MM2Button::RightWhite0,
         ];
-        self.press_keys(MM2Button::LEV);
-        self.press_keys(DIFFICULTIES[(self.difficulty) as usize]);
-        self.press_keys(MM2Button::ENT);
+        self.press_key(MM2Button::LEV);
+        self.press_key(DIFFICULTIES[(self.difficulty) as usize]);
+        self.press_key(MM2Button::ENT);
         Ok(())
     }
     fn set_position(self: &mut Self, startpos: bool, fen: Option<UciFen>, movs: Vec<ChessMove>) {
@@ -287,11 +289,58 @@ impl MephistoEmu for MM2Emu {
         if fen == "startpos" {
             return self.set_default_pos();
         }
+        let board = match Board::from_str(fen) {
+            Ok(b) => b,
+            Err(e) => {
+                println!(
+                    "info Debug invalid fen: {fen}, Error: {e}\ninfo Debug using default Board!"
+                );
+                Board::default()
+            }
+        };
+        self.system.cur_bitboard = [0; 8];
+        self.cur_board = board;
+        self.init();
+        self.press_key(MM2Button::POS);
+        self.press_key(MM2Button::ENT);
+        println!("info Debug cur board: {}", board);
+        for f in 0..8 {
+            let file = chess::File::from_index(f);
+            for r in 0..8 {
+                let rank = chess::Rank::from_index(r);
+                let sq = Square::make_square(rank, file);
+                if let Some(piece) = board.piece_on(sq) {
+                    self.press_key(PIECE_BUTTONS[piece.to_index()]);
+                    let color = board.color_on(sq).unwrap();
+                    if color == Color::Black {
+                        self.press_key(PIECE_BUTTONS[piece.to_index()]);
+                    }
+                    println!(
+                        "info Debug placing {} {} on {}",
+                        if color == Color::White {
+                            "white"
+                        } else {
+                            "black"
+                        },
+                        piece,
+                        sq
+                    );
+                    for rb in self.system.cur_bitboard {
+                        println!("info Debug bb: {:08b}", rb);
+                    }
+                    self.make_half_move(sq);
+                    for rb in self.system.cur_bitboard {
+                        println!("info Debug bb: {:08b}", rb);
+                    }
+                }
+            }
+        }
+        self.press_key(MM2Button::CL);
     }
     fn force_moves(self: &mut Self, movs: Vec<ChessMove>) {
-        self.press_keys(MM2Button::LEV);
-        self.press_keys(MM2Button::MEM);
-        self.press_keys(MM2Button::ENT);
+        self.press_key(MM2Button::LEV);
+        self.press_key(MM2Button::MEM);
+        self.press_key(MM2Button::ENT);
         for mov in movs {
             self.play_move(mov);
         }
@@ -340,14 +389,14 @@ impl MephistoEmu for MM2Emu {
         }
         if mov.get_promotion().is_some() {
             let prom = mov.get_promotion().unwrap();
-            self.press_keys(PROM_BUTTONS[(prom as usize) - 1])
+            self.press_key(PIECE_BUTTONS[prom as usize])
         }
     }
-    fn gen_move(self: &mut MM2Emu) -> UciMessage {
+    fn gen_move(self: &mut MM2Emu) -> Option<UciMessage> {
         self.wait_1sec();
         if self.last_move_forced || self.cur_board == Board::default() {
             self.last_move_forced = false;
-            self.press_keys(MM2Button::ENT);
+            self.press_key(MM2Button::ENT);
         }
         self.wait_1sec();
         let disp_str = self
@@ -374,12 +423,15 @@ impl MephistoEmu for MM2Emu {
             );
             let start = self.system.led_square;
             self.make_half_move(start);
+            while start == self.system.led_square {
+                self.wait_1sec();
+            }
             let m = ChessMove::new(start, self.system.led_square, None);
             self.make_half_move(self.system.led_square);
-            return UciMessage::BestMove {
+            return Some(UciMessage::BestMove {
                 best_move: m,
                 ponder: None,
-            };
+            });
         } else if disp_str.starts_with("Pr") {
             let start = self.system.led_square;
             self.make_half_move(start);
@@ -393,13 +445,15 @@ impl MephistoEmu for MM2Emu {
             };
             let m = ChessMove::new(start, self.system.led_square, Some(prom));
             self.make_half_move(self.system.led_square);
-            self.press_keys(PROM_BUTTONS[prom as usize - 1]);
-            return UciMessage::BestMove {
+            self.press_key(PIECE_BUTTONS[prom as usize]);
+            return Some(UciMessage::BestMove {
                 best_move: m,
                 ponder: None,
-            };
+            });
         } else if disp_str == "PLAY" {
-            self.press_keys(MM2Button::ENT)
+            self.press_key(MM2Button::ENT)
+        } else if disp_str == "NAT " {
+            return None;
         }
         let mov = match ChessMove::from_str(disp_str.to_lowercase().as_str()) {
             Ok(m) => m,
@@ -408,7 +462,7 @@ impl MephistoEmu for MM2Emu {
             }
         };
         self.play_move(mov);
-        self.press_keys(MM2Button::INFO);
+        self.press_key(MM2Button::INFO);
         let p_str = self
             .system
             .display
@@ -423,7 +477,7 @@ impl MephistoEmu for MM2Emu {
                 None
             }
         };
-        self.press_keys(MM2Button::A1Pawn);
+        self.press_key(MM2Button::A1Pawn);
         let mut info = self
             .system
             .display
@@ -441,7 +495,7 @@ impl MephistoEmu for MM2Emu {
         } * 100.0) as i32;
         //        self.press_keys(MM2Button::CL);
         //self.press_keys(MM2Button::INFO);
-        self.press_keys(MM2Button::C3Bishop);
+        self.press_key(MM2Button::C3Bishop);
         info = self
             .system
             .display
@@ -456,7 +510,7 @@ impl MephistoEmu for MM2Emu {
                 0
             }
         };
-        self.press_keys(MM2Button::CL);
+        self.press_key(MM2Button::CL);
         println!(
             "{}",
             UciMessage::Info(vec![
@@ -469,10 +523,10 @@ impl MephistoEmu for MM2Emu {
                 UciInfoAttribute::Depth(nodes)
             ])
         );
-        UciMessage::BestMove {
+        Some(UciMessage::BestMove {
             best_move: mov,
             ponder: p_move,
-        }
+        })
     }
 }
 
