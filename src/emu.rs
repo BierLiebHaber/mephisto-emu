@@ -446,8 +446,11 @@ impl MephistoEmu for MM2Emu {
                 while start == self.system.led_square {
                     self.wait_1sec();
                 }
-                let m = ChessMove::new(start, self.system.led_square, None);
+                let mut m = ChessMove::new(start, self.system.led_square, None);
                 self.make_half_move(self.system.led_square);
+                if !self.cur_board.legal(m) {
+                    m = ChessMove::new(m.get_dest(), m.get_source(), None);
+                }
                 self.cur_board = self.cur_board.make_move_new(m);
                 return Some(UciMessage::BestMove {
                     best_move: m,
@@ -472,7 +475,7 @@ impl MephistoEmu for MM2Emu {
                     ponder: None,
                 });
             } else if disp_str == "PLAY" {
-                self.press_key(MM2Button::ENT)
+                self.press_key(MM2Button::ENT);
             } else if disp_str == "NAT " {
                 return None;
             }
