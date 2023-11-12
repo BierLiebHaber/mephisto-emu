@@ -39,13 +39,7 @@ pub fn main() {
                     time_control: _time_control,
                     search_control: _search_control,
                 } => {
-                    println!(
-                        "{}",
-                        UciMessage::BestMove {
-                            best_move: emu.gen_move().unwrap(),
-                            ponder: None
-                        }
-                    );
+                    println!("{}", emu.gen_move());
                 }
                 UciMessage::Quit => return,
                 _ => println!("unhandled message: {}", message),
