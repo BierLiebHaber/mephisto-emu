@@ -303,18 +303,28 @@ impl MephistoEmu for MM2Emu {
         self.init();
         self.press_key(MM2Button::POS);
         self.press_key(MM2Button::ENT);
+        self.wait_1sec();
         println!("info Debug cur board: {}", board);
+        let mut last_piece = None;
+        let mut last_color = None;
         for f in 0..8 {
             let file = chess::File::from_index(f);
             for r in 0..8 {
                 let rank = chess::Rank::from_index(r);
                 let sq = Square::make_square(rank, file);
                 if let Some(piece) = board.piece_on(sq) {
-                    self.press_key(PIECE_BUTTONS[piece.to_index()]);
                     let color = board.color_on(sq).unwrap();
-                    if color == Color::Black {
+                    if !(last_piece.is_some()
+                        && last_piece.unwrap() == piece
+                        && last_color.unwrap() == color)
+                    {
                         self.press_key(PIECE_BUTTONS[piece.to_index()]);
+                        if color == Color::Black {
+                            self.press_key(PIECE_BUTTONS[piece.to_index()]);
+                        }
                     }
+                    last_piece = Some(piece);
+                    last_color = Some(color);
                     println!(
                         "info Debug placing {} {} on {}",
                         if color == Color::White {
@@ -325,17 +335,17 @@ impl MephistoEmu for MM2Emu {
                         piece,
                         sq
                     );
-                    for rb in self.system.cur_bitboard {
-                        println!("info Debug bb: {:08b}", rb);
-                    }
                     self.make_half_move(sq);
-                    for rb in self.system.cur_bitboard {
-                        println!("info Debug bb: {:08b}", rb);
-                    }
+                    self.wait_1sec();
                 }
             }
         }
         self.press_key(MM2Button::CL);
+        if board.side_to_move() == Color::Black {
+            self.press_key(MM2Button::POS);
+            self.press_key(MM2Button::LeftBlack9);
+            self.press_key(MM2Button::CL);
+        }
     }
     fn force_moves(self: &mut Self, movs: Vec<ChessMove>) {
         self.press_key(MM2Button::LEV);
@@ -502,7 +512,8 @@ impl MephistoEmu for MM2Emu {
             .iter()
             .map(|a| format!("{}", LCD_MAP[*a as usize]))
             .collect::<String>();
-        let ninfo = info.split(' ').collect::<Vec<&str>>()[1];
+        let vinfo = info.split(' ').collect::<Vec<&str>>();
+        let ninfo = if vinfo.len() > 1 { vinfo[1] } else { "0" };
         let nodes = match ninfo.trim().parse::<u8>() {
             Ok(n) => n,
             Err(e) => {
