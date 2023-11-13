@@ -456,12 +456,27 @@ impl MephistoEmu for MM2Emu {
                 while start == self.system.led_square {
                     self.wait_1sec();
                 }
-                let mut m = ChessMove::new(start, self.system.led_square, None);
+                let end = self.system.led_square;
+                let mut m = ChessMove::new(start, end, None);
                 self.make_half_move(self.system.led_square);
                 if !self.cur_board.legal(m) {
                     m = ChessMove::new(m.get_dest(), m.get_source(), None);
                 }
+                let color = self.cur_board.side_to_move();
+                let old_castel = self.cur_board.castle_rights(color);
                 self.cur_board = self.cur_board.make_move_new(m);
+                if old_castel != self.cur_board.castle_rights(color) {
+                    let mut first = self.system.led_square;
+                    while first == end {
+                        self.wait_1sec();
+                        first = self.system.led_square;
+                    }
+                    self.make_half_move(first);
+                    while self.system.led_square == first {
+                        self.wait_1sec();
+                    }
+                    self.make_half_move(self.system.led_square);
+                }
                 return Some(UciMessage::BestMove {
                     best_move: m,
                     ponder: None,
