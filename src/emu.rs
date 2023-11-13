@@ -508,13 +508,24 @@ impl MephistoEmu for MM2Emu {
                 .map(|a| LCD_MAP[*a as usize])
                 .collect::<String>()
                 .to_lowercase();
-            let p_move = match ChessMove::from_str(p_str.as_str()) {
+            let mut p_move = match ChessMove::from_str(p_str.as_str()) {
                 Ok(m) => Some(m),
                 Err(_) => {
                     println!("info Debug failed to parse ponder {p_str}!");
                     None
                 }
             };
+            if let Some(ponder) = p_move {
+                if let Some(piece) = self.cur_board.piece_on(ponder.get_source()) {
+                    if piece == Piece::Pawn {
+                        p_move = Some(ChessMove::new(
+                            ponder.get_source(),
+                            ponder.get_dest(),
+                            Some(Piece::Queen),
+                        ));
+                    }
+                }
+            }
             self.press_key(MM2Button::A1Pawn);
             let mut info = self
                 .system
