@@ -467,7 +467,14 @@ impl MephistoEmu for MM2Emu {
                     ponder: None,
                 });
             } else if disp_str.starts_with("Pr") {
-                let start = self.system.led_square;
+                let mut start = self.system.led_square;
+                if self.cur_board.color_on(start).unwrap() != self.cur_board.side_to_move() {
+                    self.make_half_move(start);
+                    while self.system.led_square == start {
+                        self.wait_1sec();
+                    }
+                    start = self.system.led_square;
+                }
                 self.make_half_move(start);
                 let p_char = disp_str.chars().last().unwrap();
                 let prom = match p_char {
@@ -480,6 +487,7 @@ impl MephistoEmu for MM2Emu {
                 let m = ChessMove::new(start, self.system.led_square, Some(prom));
                 self.make_half_move(self.system.led_square);
                 self.press_key(PIECE_BUTTONS[prom as usize]);
+
                 self.cur_board = self.cur_board.make_move_new(m);
                 return Some(UciMessage::BestMove {
                     best_move: m,
