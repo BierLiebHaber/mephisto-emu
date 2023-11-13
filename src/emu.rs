@@ -470,6 +470,7 @@ impl MephistoEmu for MM2Emu {
                 let m = ChessMove::new(start, self.system.led_square, Some(prom));
                 self.make_half_move(self.system.led_square);
                 self.press_key(PIECE_BUTTONS[prom as usize]);
+                self.cur_board = self.cur_board.make_move_new(m);
                 return Some(UciMessage::BestMove {
                     best_move: m,
                     ponder: None,
