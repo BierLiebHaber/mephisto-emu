@@ -371,7 +371,14 @@ impl MephistoEmu for MM2Emu {
         if self.cur_board.piece_on(mov.get_dest()).is_some() {
             self.make_half_move(mov.get_dest());
         }
-        self.cur_board = self.cur_board.make_move_new(mov);
+        if let Some(passant) = self.cur_board.en_passant() {
+            self.cur_board = self.cur_board.make_move_new(mov);
+            if self.cur_board.piece_on(passant) == None {
+                self.make_half_move(passant);
+            }
+        } else {
+            self.cur_board = self.cur_board.make_move_new(mov);
+        }
         self.make_half_move(mov.get_source());
         self.make_half_move(mov.get_dest());
         self.tone_count = 0;
@@ -408,12 +415,14 @@ impl MephistoEmu for MM2Emu {
     }
     fn gen_move(self: &mut MM2Emu) -> Option<UciMessage> {
         loop {
+            // if self.last_move_forced || self.cur_board == Board::default() {
+            //     self.last_move_forced = false;
+            //     self.press_key(MM2Button::ENT);
+            // }
             self.wait_1sec();
-            if self.last_move_forced || self.cur_board == Board::default() {
-                self.last_move_forced = false;
-                self.press_key(MM2Button::ENT);
+            if !(self.system.outlatch[0] || self.system.outlatch[1]) {
+                continue;
             }
-            self.wait_1sec();
             let disp_str = self
                 .system
                 .display
@@ -421,9 +430,6 @@ impl MephistoEmu for MM2Emu {
                 .iter()
                 .map(|a| LCD_MAP[*a as usize])
                 .collect::<String>();
-            while disp_str.contains('☐') {
-                self.wait_1sec();
-            }
             if disp_str.starts_with(" N ") {
                 let num = disp_str.split_at(2 as usize).1.to_string();
                 let mate_in = Some(num.trim().parse::<i8>().unwrap());
