@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::utils::read_file_into_slice;
-use chess::{Board, ChessMove, Color, Piece, Square};
+use chess::{Board, ChessMove, Color, File, Piece, Rank, Square};
 use vampirc_uci::{UciFen, UciInfoAttribute, UciMessage};
 use w65c02s::{System, W65C02S};
 const fn calc_lcd_map() -> [char; 0x100] {
@@ -525,7 +525,10 @@ impl MephistoEmu for MM2Emu {
             };
             if let Some(ponder) = p_move {
                 if let Some(piece) = self.cur_board.piece_on(ponder.get_source()) {
-                    if piece == Piece::Pawn {
+                    if piece == Piece::Pawn
+                        && (ponder.get_dest().get_rank() == Rank::First
+                            || ponder.get_dest().get_rank() == Rank::Eighth)
+                    {
                         p_move = Some(ChessMove::new(
                             ponder.get_source(),
                             ponder.get_dest(),
