@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::utils::read_file_into_slice;
-use chess::{Board, ChessMove, Color, File, Piece, Rank, Square};
+use chess::{Board, ChessMove, Color, Piece, Rank, Square};
 use vampirc_uci::{UciFen, UciInfoAttribute, UciMessage};
 use w65c02s::{System, W65C02S};
 const fn calc_lcd_map() -> [char; 0x100] {
