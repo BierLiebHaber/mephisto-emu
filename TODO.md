@@ -1,0 +1,3 @@
+-implement uci stop
+-implement move undo
+-actually implement ownbook setting
