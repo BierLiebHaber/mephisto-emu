@@ -28,6 +28,7 @@ pub fn main() {
                 }
                 UciMessage::SetOption { name, value } => match name.as_str() {
                     "Difficulty" => set_diff = u8::from_str(value.unwrap().as_str()).unwrap(),
+                    "Debug" => {}
                     _ => println!("info Debug unknown option: {name}, {}", value.unwrap()),
                 },
                 UciMessage::Position {
