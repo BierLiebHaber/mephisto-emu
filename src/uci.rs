@@ -6,6 +6,7 @@ use vampirc_uci::*;
 pub fn spawn_stdin_channel() -> Receiver<UciMessage> {
     let (tx, rx) = mpsc::channel::<UciMessage>();
     let mut rdy_once = true;
+    let mut debug = false;
     thread::spawn(move || loop {
         let mut buffer = String::new();
         io::stdin().read_line(&mut buffer).unwrap();
@@ -13,12 +14,23 @@ pub fn spawn_stdin_channel() -> Receiver<UciMessage> {
         if message.is_unknown() {
             continue;
         }
-        if message == UciMessage::IsReady {
-            if !rdy_once {
-                println!("{}", UciMessage::ReadyOk);
-                continue;
+        if debug {
+            println!("info Debug recieved command: {message}")
+        }
+        match message.clone() {
+            UciMessage::IsReady => {
+                if !rdy_once {
+                    println!("{}", UciMessage::ReadyOk);
+                    continue;
+                }
+                rdy_once = false;
             }
-            rdy_once = false;
+            UciMessage::SetOption { name, value } => {
+                if name == "Debug" && value.is_some() {
+                    debug = value.unwrap().to_lowercase() == "true";
+                }
+            }
+            _ => {}
         }
         if let Err(_) = tx.send(message) {
             break;
@@ -37,6 +49,10 @@ pub fn print_intro() {
         UciOptionConfig::Check {
             name: "OwnBook".to_string(),
             default: Some(true),
+        },
+        UciOptionConfig::Check {
+            name: "Debug".to_string(),
+            default: Some(false),
         },
     ];
     println!(
