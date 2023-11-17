@@ -20,3 +20,4 @@ Put both into the `mephisto-emu` folder.
 * using the engine with a fixed movetime needs quite a big margin (> 1sec) since we need to extract the info for the best current move
 * all other go modifiers except movetime are unsupported
 * while we do return a ponder move there is no way to actually use this information in the engine
+* the first move in a new game (or movestack) can not be canceled by movetime or the stop command
