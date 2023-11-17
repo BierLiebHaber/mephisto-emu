@@ -3,9 +3,7 @@ mod uci;
 mod utils;
 
 use emu::{MM2Emu, MephistoEmu};
-use std::sync::mpsc::TryRecvError;
-use std::time::Duration;
-use std::{str::FromStr, thread};
+use std::{str::FromStr, sync::mpsc::TryRecvError, thread, time::Duration};
 use uci::{print_intro, spawn_stdin_channel};
 use vampirc_uci::UciMessage;
 
@@ -37,10 +35,10 @@ pub fn main() {
                     moves,
                 } => emu.set_position(startpos, fen, moves),
                 UciMessage::Go {
-                    time_control: _time_control,
+                    time_control,
                     search_control: _search_control,
                 } => {
-                    if let Some(mov) = emu.gen_move() {
+                    if let Some(mov) = emu.gen_move(&stdin_channel, time_control) {
                         println!("{}", mov);
                     }
                 }

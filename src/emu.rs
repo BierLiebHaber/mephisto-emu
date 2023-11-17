@@ -2,11 +2,13 @@ use core::panic;
 use std::{
     io::{Error, ErrorKind},
     str::FromStr,
+    sync::mpsc::{Receiver, TryRecvError},
+    time::Instant,
 };
 
 use crate::utils::read_file_into_slice;
 use chess::{Board, ChessMove, Color, Piece, Rank, Square};
-use vampirc_uci::{UciFen, UciInfoAttribute, UciMessage};
+use vampirc_uci::{UciFen, UciInfoAttribute, UciMessage, UciTimeControl};
 use w65c02s::{System, W65C02S};
 const fn calc_lcd_map() -> [char; 0x100] {
     let mut res = ['☐'; 0x100];
@@ -135,7 +137,11 @@ pub trait MephistoEmu {
     fn set_fen(self: &mut Self, fen: &str);
     fn force_moves(self: &mut Self, movs: Vec<ChessMove>);
     fn play_move(self: &mut Self, mov: ChessMove);
-    fn gen_move(self: &mut Self) -> Option<UciMessage>;
+    fn gen_move(
+        self: &mut Self,
+        rec: &Receiver<UciMessage>,
+        time_control: Option<UciTimeControl>,
+    ) -> Option<UciMessage>;
 }
 
 pub struct MM2Emu {
@@ -145,7 +151,6 @@ pub struct MM2Emu {
     instruction_count: u64,
     interrupt_count: u64,
     difficulty: u8,
-    // key_pressed: u8,
     tone_count: u64,
     last_move_forced: bool,
 }
@@ -371,6 +376,7 @@ impl MephistoEmu for MM2Emu {
         if self.cur_board.piece_on(mov.get_dest()).is_some() {
             self.make_half_move(mov.get_dest());
         }
+        // remove en passant piece
         if let Some(passant) = self.cur_board.en_passant() {
             self.cur_board = self.cur_board.make_move_new(mov);
             if self.cur_board.piece_on(passant) == None {
@@ -413,12 +419,54 @@ impl MephistoEmu for MM2Emu {
             self.press_key(PIECE_BUTTONS[prom as usize])
         }
     }
-    fn gen_move(self: &mut MM2Emu) -> Option<UciMessage> {
+    fn gen_move(
+        self: &mut MM2Emu,
+        rec: &Receiver<UciMessage>,
+        time_control: Option<UciTimeControl>,
+    ) -> Option<UciMessage> {
+        let end_time: Option<Instant> = if let Some(tc) = time_control {
+            match tc {
+                UciTimeControl::MoveTime(time) => match time.to_std() {
+                    Ok(dur) => Some(Instant::now() + dur),
+                    Err(_) => {
+                        println!("info Debug could not parse movetime");
+                        None
+                    }
+                },
+                UciTimeControl::Infinite => None,
+                _ => {
+                    println!("info Debug only movetime time control accepted");
+                    None
+                }
+            }
+        } else {
+            None
+        };
         loop {
-            // if self.last_move_forced || self.cur_board == Board::default() {
-            //     self.last_move_forced = false;
-            //     self.press_key(MM2Button::ENT);
-            // }
+            match rec.try_recv() {
+                Ok(message) => match message {
+                    UciMessage::IsReady => println!("{}", UciMessage::ReadyOk),
+                    UciMessage::Stop => self.press_key(MM2Button::ENT),
+                    UciMessage::Quit => std::process::exit(0),
+                    _ => {
+                        println!(
+                            "info Debug ignoring unknown UCI message during search: {}",
+                            message
+                        )
+                    }
+                },
+                Err(TryRecvError::Empty) => {}
+                Err(TryRecvError::Disconnected) => {
+                    panic!("Stdin disconnected!")
+                }
+            }
+            if let Some(et) = end_time {
+                if Instant::now() >= et {
+                    // finish move if we are out of time
+                    println!("Stopping calc due to movetime!");
+                    self.press_key(MM2Button::ENT);
+                }
+            }
             self.wait_1sec();
             if !(self.system.outlatch[0] || self.system.outlatch[1]) {
                 continue;
@@ -465,7 +513,10 @@ impl MephistoEmu for MM2Emu {
                 let color = self.cur_board.side_to_move();
                 let old_castel = self.cur_board.castle_rights(color);
                 self.cur_board = self.cur_board.make_move_new(m);
-                if old_castel != self.cur_board.castle_rights(color) {
+                if old_castel != self.cur_board.castle_rights(color)
+                    && (m.get_source() == Square::E1 || m.get_source() == Square::E8)
+                {
+                    // cleanup casteling leftovers
                     let mut first = self.system.led_square;
                     while first == end {
                         self.wait_1sec();
@@ -484,6 +535,7 @@ impl MephistoEmu for MM2Emu {
             } else if disp_str.starts_with("Pr") {
                 let mut start = self.system.led_square;
                 if self.cur_board.color_on(start).unwrap() != self.cur_board.side_to_move() {
+                    // first remove taken piece
                     self.make_half_move(start);
                     while self.system.led_square == start {
                         self.wait_1sec();
@@ -531,27 +583,32 @@ impl MephistoEmu for MM2Emu {
                 .map(|a| LCD_MAP[*a as usize])
                 .collect::<String>()
                 .to_lowercase();
-            let mut p_move = match ChessMove::from_str(p_str.as_str()) {
-                Ok(m) => Some(m),
+            let p_move = match ChessMove::from_str(p_str.as_str()) {
+                Ok(m) => {
+                    if let Some(piece) = self.cur_board.piece_on(m.get_source()) {
+                        if piece == Piece::Pawn
+                            && (m.get_dest().get_rank() == Rank::First
+                                || m.get_dest().get_rank() == Rank::Eighth)
+                        {
+                            // set pawn promotion ponder
+                            Some(ChessMove::new(
+                                m.get_source(),
+                                m.get_dest(),
+                                Some(Piece::Queen),
+                            ))
+                        } else {
+                            Some(m) // this could be nicer with if let chains :(
+                        }
+                    } else {
+                        Some(m)
+                    }
+                }
                 Err(_) => {
                     println!("info Debug failed to parse ponder {p_str}!");
                     None
                 }
             };
-            if let Some(ponder) = p_move {
-                if let Some(piece) = self.cur_board.piece_on(ponder.get_source()) {
-                    if piece == Piece::Pawn
-                        && (ponder.get_dest().get_rank() == Rank::First
-                            || ponder.get_dest().get_rank() == Rank::Eighth)
-                    {
-                        p_move = Some(ChessMove::new(
-                            ponder.get_source(),
-                            ponder.get_dest(),
-                            Some(Piece::Queen),
-                        ));
-                    }
-                }
-            }
+            // get score in centipawns
             self.press_key(MM2Button::A1Pawn);
             let mut info = self
                 .system
@@ -560,7 +617,7 @@ impl MephistoEmu for MM2Emu {
                     format!(
                         "{}{}",
                         LCD_MAP[a as usize],
-                        if a & 0x80 == 0 && a != 0xff { "." } else { "" }
+                        if a & 0x80 == 0 { "." } else { "" }
                     )
                 })
                 .join("");
@@ -568,8 +625,7 @@ impl MephistoEmu for MM2Emu {
                 Ok(f) => f,
                 Err(_) => 0.0,
             } * 100.0) as i32;
-            //        self.press_keys(MM2Button::CL);
-            //self.press_keys(MM2Button::INFO);
+            // get amount of bruteforced nodes
             self.press_key(MM2Button::C3Bishop);
             info = self
                 .system
