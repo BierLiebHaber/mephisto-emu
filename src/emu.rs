@@ -7,7 +7,7 @@ use std::{
 };
 
 use crate::utils::read_file_into_slice;
-use chess::{Board, ChessMove, Color, Piece, Rank, Square};
+use chess::{Board, ChessMove, Color, File, Piece, Rank, Square};
 use vampirc_uci::{UciFen, UciInfoAttribute, UciMessage, UciTimeControl};
 use w65c02s::{System, W65C02S};
 const fn calc_lcd_map() -> [char; 0x100] {
@@ -153,6 +153,7 @@ pub struct MM2Emu {
     difficulty: u8,
     tone_count: u64,
     last_move_forced: bool,
+    last_movs: Option<Vec<ChessMove>>,
 }
 
 impl MM2Emu {
@@ -167,6 +168,7 @@ impl MM2Emu {
             // key_pressed: 16,
             tone_count: 0,
             last_move_forced: false,
+            last_movs: None,
         }
     }
     fn await_interrupt(self: &mut MM2Emu) {
@@ -197,7 +199,7 @@ impl MM2Emu {
     pub fn init(self: &mut MM2Emu) {
         self.cpu.reset();
         self.system.display_pos = 3;
-        self.system.led_rank = 0;
+        self.system.board_leds_big.copy_from_slice(&[0 as u8; 64]);
         self.wait_1sec();
         self.wait_1sec();
     }
@@ -217,9 +219,23 @@ impl MM2Emu {
         self.set_difficulty(None).unwrap();
     }
     fn make_half_move(self: &mut MM2Emu, sq: chess::Square) {
+        // for (i, v) in (0..).zip(self.system.board_leds_big) {
+        //     if i % 8 == 0 {
+        //         println!("preboard {i} {}", self.system.outlatch[7]);
+        //     }
+        //     print!("{v:02x} ");
+        // }
+        // println!();
         self.wait_1sec();
         self.system.cur_bitboard[sq.get_rank().to_index()] ^= 1 << (sq.get_file().to_index());
         self.wait_1sec();
+        // for (i, v) in (0..).zip(self.system.board_leds_big) {
+        //     if i % 8 == 0 {
+        //         println!("postboard {i} {}", self.system.outlatch[7]);
+        //     }
+        //     print!("{v:02x} ");
+        // }
+        // println!();
     }
 }
 
@@ -252,6 +268,11 @@ impl MephistoEmu for MM2Emu {
         Ok(())
     }
     fn set_position(self: &mut Self, startpos: bool, fen: Option<UciFen>, movs: Vec<ChessMove>) {
+        if self.last_movs.clone().unwrap_or_default() == movs {
+            self.last_movs = None;
+        } else {
+            self.last_movs = Some(movs.clone());
+        }
         if startpos && movs.len() == 0 {
             self.set_default_pos();
             return;
@@ -263,11 +284,7 @@ impl MephistoEmu for MM2Emu {
         let nfen: &str;
         let s: UciFen;
         let mb_last = movs.last();
-        let last: ChessMove = if mb_last.is_some() {
-            *mb_last.unwrap()
-        } else {
-            ChessMove::new(Square::A1, Square::A1, None)
-        };
+        let last: ChessMove = *mb_last.unwrap();
         if self.cur_board.legal(last) {
             let nb = self.cur_board.make_move_new(last);
             let mut ob = if startpos {
@@ -317,9 +334,9 @@ impl MephistoEmu for MM2Emu {
         let mut last_piece = None;
         let mut last_color = None;
         for f in 0..8 {
-            let file = chess::File::from_index(f);
+            let file = File::from_index(f);
             for r in 0..8 {
-                let rank = chess::Rank::from_index(r);
+                let rank = Rank::from_index(r);
                 let sq = Square::make_square(rank, file);
                 if let Some(piece) = board.piece_on(sq) {
                     let color = board.color_on(sq).unwrap();
@@ -389,24 +406,22 @@ impl MephistoEmu for MM2Emu {
         self.make_half_move(mov.get_dest());
         self.tone_count = 0;
         // check casteling
-        if mov.get_source().get_file() == chess::File::E
-            && self.cur_board.piece_on(mov.get_dest()).unwrap() == chess::Piece::King
+        if mov.get_source().get_file() == File::E
+            && self.cur_board.piece_on(mov.get_dest()).unwrap() == Piece::King
         {
-            if mov.get_dest().get_file() == chess::File::G
-                || mov.get_dest().get_file() == chess::File::C
-            {
+            if mov.get_dest().get_file() == File::G || mov.get_dest().get_file() == File::C {
                 let rank = mov.get_source().get_rank();
                 let sec_mov;
                 if mov.get_dest().get_file() == chess::File::G {
                     sec_mov = ChessMove::new(
-                        chess::Square::make_square(rank, chess::File::H),
-                        chess::Square::make_square(rank, chess::File::F),
+                        Square::make_square(rank, File::H),
+                        Square::make_square(rank, File::F),
                         None,
                     );
                 } else {
                     sec_mov = ChessMove::new(
-                        chess::Square::make_square(rank, chess::File::A),
-                        chess::Square::make_square(rank, chess::File::D),
+                        Square::make_square(rank, File::A),
+                        Square::make_square(rank, File::D),
                         None,
                     );
                 }
@@ -479,6 +494,7 @@ impl MephistoEmu for MM2Emu {
                 .map(|a| LCD_MAP[*a as usize])
                 .collect::<String>();
             if disp_str.starts_with(" N ") {
+                self.wait_1sec();
                 let num = disp_str.split_at(2 as usize).1.to_string();
                 let mate_in = Some(num.trim().parse::<i8>().unwrap());
                 println!(
@@ -490,25 +506,53 @@ impl MephistoEmu for MM2Emu {
                         upper_bound: None
                     }])
                 );
+                while self.cur_board.color_on(self.system.led_square).is_none() {
+                    self.wait_1sec();
+                }
                 let mut start = self.system.led_square;
-                if let Some(color) = self.cur_board.color_on(start) {
-                    if color != self.cur_board.side_to_move() {
-                        self.make_half_move(self.system.led_square);
-                        while start == self.system.led_square {
-                            self.wait_1sec();
-                        }
+                if self
+                    .cur_board
+                    .color_on(start)
+                    .is_some_and(|c| c != self.cur_board.side_to_move())
+                {
+                    self.make_half_move(self.system.led_square);
+                    while start == self.system.led_square {
+                        self.wait_1sec();
                     }
                 }
+
                 start = self.system.led_square;
                 self.make_half_move(start);
+
                 while start == self.system.led_square {
                     self.wait_1sec();
                 }
                 let end = self.system.led_square;
                 let mut m = ChessMove::new(start, end, None);
+
                 self.make_half_move(self.system.led_square);
+
                 if !self.cur_board.legal(m) {
                     m = ChessMove::new(m.get_dest(), m.get_source(), None);
+                    if !self.cur_board.legal(m) {
+                        if self.last_movs.is_none() {
+                            println!("info Debug failed to generate legal move, giving up!");
+                            return None;
+                        }
+                        println!("info Debug failed to generate legal move retrying from fen!");
+                        let ms = self.last_movs.clone().unwrap();
+                        self.set_position(true, None, ms);
+                        return self.gen_move(
+                            rec,
+                            match end_time {
+                                Some(et) => Some(UciTimeControl::MoveTime(
+                                    vampirc_uci::Duration::from_std(et - Instant::now())
+                                        .unwrap_or(vampirc_uci::Duration::min_value()),
+                                )),
+                                None => None,
+                            },
+                        );
+                    }
                 }
                 let color = self.cur_board.side_to_move();
                 let old_castel = self.cur_board.castle_rights(color);
@@ -675,9 +719,9 @@ pub struct MM2 {
     last_display: [u8; 4],
     display_pos: i8,
     board_leds: [u8; 8],
+    board_leds_big: [u8; 64],
     irq_done: bool,
-    led_rank: usize,
-    led_square: chess::Square,
+    led_square: Square,
 }
 
 impl MM2 {
@@ -703,9 +747,9 @@ impl MM2 {
             last_display: [0; 4],
             display_pos: 3,
             board_leds: [0; 8],
+            board_leds_big: [0; 64],
             irq_done: true,
-            led_rank: 7,
-            led_square: chess::Square::A1,
+            led_square: Square::A1,
         }
     }
 }
@@ -773,14 +817,15 @@ impl System for MM2 {
             0x3000 => {
                 self.board_leds.copy_from_slice([0 as u8; 8].as_slice());
                 self.board_leds[self.mux] = value;
-                if value > 0 {
-                    self.led_square = unsafe {
-                        chess::Square::new((self.mux * 8 + value.trailing_zeros() as usize) as u8)
-                    };
+                for i in 0..64 {
+                    if self.board_leds_big[i] > 0 {
+                        self.board_leds_big[i] -= 1;
+                    }
                 }
-                self.led_rank += 1;
-                if self.led_rank > 7 {
-                    self.led_rank = 0;
+                if value > 0 {
+                    let idx = self.mux * 8 + value.trailing_zeros() as usize;
+                    self.led_square = unsafe { Square::new(idx as u8) };
+                    self.board_leds_big[idx] = 0xff;
                 }
             }
             0x3800 => self.mux = (!value).trailing_zeros() as usize,
